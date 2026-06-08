@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Uploads a CodePush package to Bitrise using Release Management Public API.
-# Reference: https://api.bitrise.io/release-management/api-docs/index.html#
+# Reference: https://api.bitrise.io/release-management/v2/code-push/v1
 #
 # This script supports Linux distributions (alpine, arch, centos, debian, fedora, rhel, ubuntu) and macOS.
 # For it to work properly you will need either jq and openssl packages installed on your system or sudo privileges for the script.
@@ -89,7 +89,7 @@ get_upload_information() {
 
   file_name=$(echo "\"$PACKAGE_PATH\"" | jq -r 'split("/") | .[-1]')
   response_body=$(mktemp)
-  http_code=$(curl -X GET -w "%{http_code}" -s -H "Authorization: $AUTHORIZATION_TOKEN" -o "$response_body" "$RM_API_HOST/release-management/v1/connected-apps/$CONNECTED_APP_ID/code-push/deployments/$DEPLOYMENT_ID/packages/$1/upload-url?file_name=$file_name&file_size_bytes=$file_size_bytes&app_version=$APP_VERSION&description=$DESCRIPTION&rollout=$ROLLOUT_PERCENTAGE&disabled=$DISABLED&mandatory=$MANDATORY")
+  http_code=$(curl -X GET -w "%{http_code}" -s -H "Authorization: $AUTHORIZATION_TOKEN" -o "$response_body" "$RM_API_HOST/release-management/v2/code-push/v1/deployments/$DEPLOYMENT_ID/updates/$1/upload-url?app_id=$CONNECTED_APP_ID&file_name=$file_name&file_size_bytes=$file_size_bytes&app_version=$APP_VERSION&description=$DESCRIPTION&rollout=$ROLLOUT_PERCENTAGE&disabled=$DISABLED&mandatory=$MANDATORY")
   upload_info=$(<"$response_body")
   rm -f "$response_body"
 
@@ -117,7 +117,7 @@ is_processed() {
   fi
 
   response_body=$(mktemp)
-  http_code=$(curl -s -w "%{http_code}" -H "Authorization: $AUTHORIZATION_TOKEN" -o "$response_body" "$RM_API_HOST/release-management/v1/connected-apps/$CONNECTED_APP_ID/code-push/deployments/$DEPLOYMENT_ID/packages/$1/status")
+  http_code=$(curl -s -w "%{http_code}" -H "Authorization: $AUTHORIZATION_TOKEN" -o "$response_body" "$RM_API_HOST/release-management/v2/code-push/v1/deployments/$DEPLOYMENT_ID/updates/$1/status?app_id=$CONNECTED_APP_ID")
   status_data=$(<"$response_body")
   rm -f "$response_body"
 
@@ -133,7 +133,7 @@ is_processed() {
     echo "$status_data"
 
     sleep 2
-    is_processed "$1" $2 + 1
+    is_processed "$1" $(($2 + 1))
   else
     echo "Unexpected status: $status. Exiting..."
 
@@ -170,7 +170,7 @@ process_upload_response() {
 # Outputs:
 #   Returns the response of Google Cloud Storage.
 upload_package() {
-  headers_json=$(echo "$1" | jq -r '.headers | to_entries | map("\(.value.name): \(.value.value)")')
+  headers_json=$(echo "$1" | jq -r 'if (.headers | type) == "array" then .headers | map("\(.name): \(.value)") else .headers | to_entries | map("\(.key): \(.value)") end')
   method=$(echo "$1" | jq -r '.method')
   url=$(echo "$1" | jq -r '.url')
 
@@ -199,14 +199,14 @@ upload_package() {
 check_dependencies
 
 uuid=$(openssl rand -hex 16)
-package_id=${uuid:0:8}-${uuid:8:4}-${uuid:12:4}-${uuid:16:4}-${uuid:20:12}
+update_id=${uuid:0:8}-${uuid:8:4}-${uuid:12:4}-${uuid:16:4}-${uuid:20:12}
 
 if [ -z "$RM_API_HOST" ]; then
   RM_API_HOST="https://api.bitrise.io"
 fi
 
-upload_info_full_resp=$(get_upload_information "$package_id")
-request_error "$upload_info_full_resp" '/code-push/deployments/$DEPLOYMENT_ID/packages/$1/upload-url'
+upload_info_full_resp=$(get_upload_information "$update_id")
+request_error "$upload_info_full_resp" '/code-push/deployments/$DEPLOYMENT_ID/updates/$1/upload-url'
 upload_info=$(getBodyFromFullResponse "$upload_info_full_resp")
 upload_response=$(upload_package "$upload_info")
-process_upload_response "$upload_response" "$package_id"
+process_upload_response "$upload_response" "$update_id"

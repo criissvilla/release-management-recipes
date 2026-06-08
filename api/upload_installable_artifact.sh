@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Uploads an installable artifact to Bitrise using Release Management Public API.
-# Reference: https://api.bitrise.io/release-management/api-docs/index.html#/Installable%20Artifacts/GenerateInstallableArtifactUploadUrl
+# Reference: https://api.bitrise.io/release-management/v2/apps/v1
 #
 # This script supports Linux distributions (alpine, arch, centos, debian, fedora, rhel, ubuntu) and macOS.
 # For it to work properly you will need either jq and openssl packages installed on your system or sudo privileges for the script.
@@ -67,7 +67,7 @@ get_upload_information() {
 
   file_name=$(echo "\"$ARTIFACT_PATH\"" | jq -r 'split("/") | .[-1]')
 
-  url="$RM_API_HOST/release-management/v1/connected-apps/$CONNECTED_APP_ID/installable-artifacts/$1/upload-url?file_name=$file_name&file_size_bytes=$file_size_bytes"
+  url="$RM_API_HOST/release-management/v2/apps/v1/installable-artifacts/$1/upload-url?app_id=$CONNECTED_APP_ID&file_name=$file_name&file_size_bytes=$file_size_bytes"
 
   if [[ -n "$BRANCH" ]]; then
     encoded_branch=$(printf '%s' "$BRANCH" | jq -sRr @uri)
@@ -106,7 +106,7 @@ is_processed() {
   fi
 
   response_body=$(mktemp)
-  http_code=$(curl -s -w "%{http_code}" -H "Authorization: $AUTHORIZATION_TOKEN" -o "$response_body" "$RM_API_HOST/release-management/v1/connected-apps/$CONNECTED_APP_ID/installable-artifacts/$1/status")
+  http_code=$(curl -s -w "%{http_code}" -H "Authorization: $AUTHORIZATION_TOKEN" -o "$response_body" "$RM_API_HOST/release-management/v2/apps/v1/installable-artifacts/$1/status?app_id=$CONNECTED_APP_ID")
   status_data=$(<"$response_body")
   rm -f "$response_body"
 
@@ -122,7 +122,7 @@ is_processed() {
     echo "$status_data"
 
     sleep 2
-    is_processed "$1" $2 + 1
+    is_processed "$1" $(($2 + 1))
   else
     echo "Unexpected status: $status. Exiting..."
 
@@ -159,7 +159,7 @@ process_upload_response() {
 # Outputs:
 #   Returns the response of Google Cloud Storage.
 upload_artifact() {
-  headers_json=$(echo "$1" | jq -r '.headers | to_entries | map("\(.value.name): \(.value.value)")')
+  headers_json=$(echo "$1" | jq -r 'if (.headers | type) == "array" then .headers | map("\(.name): \(.value)") else .headers | to_entries | map("\(.key): \(.value)") end')
   method=$(echo "$1" | jq -r '.method')
   url=$(echo "$1" | jq -r '.url')
 
